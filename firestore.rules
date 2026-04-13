@@ -1,0 +1,210 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {uid}
+// Fields:
+//   - uid: string (required)
+//   - email: string (required, email)
+//   - displayName: string (required)
+//   - role: string (required, enum: ['admin', 'seller', 'user'])
+//   - photoURL: string (optional)
+//   - createdAt: string (required, ISO 8601)
+//   - address: map (optional)
+//
+// Collection: products
+// Document ID: {productId}
+// Fields:
+//   - id: string (required)
+//   - name: string (required)
+//   - description: string (required)
+//   - price: number (required, positive)
+//   - category: string (required)
+//   - vendorId: string (required)
+//   - vendorName: string (required)
+//   - images: list (required)
+//   - stock: number (required, non-negative)
+//   - createdAt: string (required, ISO 8601)
+//
+// Collection: categories
+// Document ID: {categoryId}
+// Fields:
+//   - id: string (required)
+//   - name: string (required)
+//   - img: string (required)
+//   - note: string (optional)
+//
+// Collection: orders
+// Document ID: {orderId}
+// Fields:
+//   - id: string (required)
+//   - userId: string (required)
+//   - userEmail: string (required)
+//   - items: list (required)
+//   - totalAmount: number (required)
+//   - status: string (required, enum: ['pending', 'delivered', 'cancelled'])
+//   - createdAt: string (required, ISO 8601)
+//
+// Collection: reviews
+// Document ID: {reviewId}
+// Fields:
+//   - id: string (required)
+//   - productId: string (required)
+//   - userId: string (required)
+//   - userName: string (required)
+//   - rating: number (required, 1-5)
+//   - comment: string (required)
+//   - createdAt: string (required, ISO 8601)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "codaphicsofficial@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isSeller() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // Users Collection
+    match /users/{userId} {
+      function isValidUser(data) {
+        return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'photoURL', 'createdAt', 'address', 'password']) &&
+               data.uid is string && data.uid.size() > 0 &&
+               data.email is string && isValidEmail(data.email) &&
+               data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+               data.role in ['admin', 'seller', 'user'] &&
+               isValidDateString(data.createdAt);
+      }
+
+      allow read: if isOwner(userId) || isAdmin();
+      
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(userId) && request.resource.data.role == 'user' || isAdmin());
+      
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
+      
+      allow delete: if isAdmin();
+    }
+
+    // Products Collection
+    match /products/{productId} {
+      function isValidProduct(data) {
+        return hasOnlyAllowedFields(['id', 'name', 'description', 'price', 'originalPrice', 'discount', 'category', 'vendorId', 'vendorName', 'images', 'stock', 'rating', 'reviewCount', 'createdAt']) &&
+               data.id is string && data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+               data.price is number && data.price >= 0 &&
+               data.vendorId is string && data.vendorName is string &&
+               data.images is list && data.images.size() > 0 && data.images.size() <= 10 &&
+               data.stock is number && data.stock >= 0 &&
+               isValidDateString(data.createdAt);
+      }
+
+      allow read: if true;
+      
+      allow create: if (isSeller() && request.resource.data.vendorId == request.auth.uid || isAdmin()) && 
+                    isValidProduct(request.resource.data);
+      
+      allow update: if (isSeller() && resource.data.vendorId == request.auth.uid && request.resource.data.vendorId == resource.data.vendorId || isAdmin()) && 
+                    isValidProduct(request.resource.data);
+      
+      allow delete: if (isSeller() && resource.data.vendorId == request.auth.uid) || isAdmin();
+    }
+
+    // Categories Collection
+    match /categories/{categoryId} {
+      function isValidCategory(data) {
+        return hasOnlyAllowedFields(['id', 'name', 'img', 'note']) &&
+               data.id is string && data.name is string && data.name.size() > 0 &&
+               data.img is string && data.img.size() > 0;
+      }
+
+      allow read: if true;
+      allow write: if isAdmin() && isValidCategory(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Orders Collection
+    match /orders/{orderId} {
+      function isValidOrder(data) {
+        return hasOnlyAllowedFields(['id', 'userId', 'userEmail', 'items', 'totalAmount', 'status', 'createdAt', 'shippingAddress']) &&
+               data.id is string && data.userId is string &&
+               data.items is list && data.items.size() > 0 &&
+               data.totalAmount is number && data.totalAmount >= 0 &&
+               data.status in ['pending', 'delivered', 'cancelled'] &&
+               isValidDateString(data.createdAt);
+      }
+
+      // Sellers can read orders if they are a vendor for at least one item
+      // This is hard to enforce perfectly in rules without a specific field, 
+      // but we can allow read if the user is the owner or admin.
+      // For sellers, we might need to rely on their dashboard logic or add a 'vendorIds' array to the order.
+      allow read: if isOwner(resource.data.userId) || isAdmin() || 
+                  (isSeller() && exists(/databases/$(database)/documents/users/$(request.auth.uid))); 
+      
+      // Better seller read: if we add vendorIds array
+      // allow read: if isOwner(resource.data.userId) || isAdmin() || (isSeller() && request.auth.uid in resource.data.vendorIds);
+
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidOrder(request.resource.data);
+      
+      allow update: if isAdmin() || (isOwner(resource.data.userId) && request.resource.data.status == 'cancelled' && resource.data.status == 'pending');
+      
+      allow delete: if isAdmin();
+    }
+
+    // Reviews Collection
+    match /reviews/{reviewId} {
+      function isValidReview(data) {
+        return hasOnlyAllowedFields(['id', 'productId', 'userId', 'userName', 'userPhoto', 'rating', 'comment', 'createdAt']) &&
+               data.id is string && data.productId is string && data.userId is string &&
+               data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+               data.comment is string && data.comment.size() > 0 && data.comment.size() < 1000 &&
+               isValidDateString(data.createdAt);
+      }
+
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidReview(request.resource.data);
+      allow update: if isOwner(resource.data.userId) && isValidReview(request.resource.data);
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+  }
+}

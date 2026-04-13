@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-purple: #7d2e8e;
+  --color-brand-purple-dark: #6a2679;
+  --color-brand-green: #008539;
+  --color-brand-green-dark: #006b2e;
+  --color-brand-orange: #ff8c00;
+  --color-brand-orange-dark: #e67e00;
+}
+
+@layer base {
+  body {
+    @apply text-gray-800 antialiased bg-[#f8f9fa];
+  }
+}
+
+@layer utilities {
+  .glass-effect {
+    @apply bg-white/80 backdrop-blur-md border border-white/20;
+  }
+  
+  .premium-shadow {
+    box-shadow: 0 10px 40px -10px rgba(125, 46, 142, 0.1);
+  }
+  
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-purple-dark;
+  }
+}
